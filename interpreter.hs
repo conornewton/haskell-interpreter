@@ -1,54 +1,80 @@
+import Prelude hiding (lookup)
+import System.IO
+import Data.Map.Strict (Map, empty, lookup, insert)
 import Data.Char
 import Text.Read (readMaybe)
 
 data Op = Plus | Multiply
-          deriving (Show)
 
+data Command  = Variable String MathCommand | Evaluate MathCommand
 
-data Command = Number Double |
-               Operation Command Op Command
-               deriving (Show)
-
+data MathCommand = VariableUsage String |
+                   Number Double |
+                   Operation MathCommand Op MathCommand
 
 -- tokenise
 split :: String -> [String]
 split []       = []
 split ('+':xs) = ["+"] ++ (split xs)
 split ('*':xs) = ["*"] ++ (split xs)
+split ('=':xs) = ["="] ++ (split xs)
 split (' ':xs) = split xs
-split xs       = [(takeWhile isDigit xs)] ++ (split (dropWhile isDigit xs))
+split xs       = if isDigit $ head xs then [(takeWhile isDigit xs)] ++ (split (dropWhile isDigit xs)) else [(takeWhile isAlpha xs)] ++ (split (dropWhile isAlpha xs))
 
 checkTokens :: String -> Bool
 checkTokens [] = True
 checkTokens (x:xs) = if elem x valid then checkTokens xs else False
-    where valid = "0123456789+*"
-
+    where valid = "0123456789abcdefhijklmnopqrstuvwxyz+=*"
 
 parseCommand :: [String] -> Maybe Command
-parseCommand [] = Nothing
-parseCommand (x:"+":xs) = do c1 <- parseCommand [x]
-                             c2 <- parseCommand xs
-                             Just (Operation c1 Plus c2)
-parseCommand (x:"*":xs) = do c1 <- parseCommand [x]
-                             c2 <- parseCommand xs
-                             Just (Operation c1 Multiply c2)
-parseCommand (x:xs) = do d <- readMaybe x
-                         Just (Number d)
+parseCommand (id:"=":xs) = do m <- parseMathCommand xs
+                              Just (Variable id m)
+parseCommand xs = do m <- parseMathCommand xs
+                     Just (Evaluate m)
 
-evalCommand :: Command -> Double
-evalCommand (Number x) = x
-evalCommand (Operation c1 op c2) = evalOp op (evalCommand c1)  (evalCommand c2)
+parseMathCommand :: [String] -> Maybe MathCommand
+parseMathCommand [] = Nothing
+parseMathCommand (x:"+":xs) = do c1 <- parseMathCommand [x]
+                                 c2 <- parseMathCommand xs
+                                 Just (Operation c1 Plus c2)
+parseMathCommand (x:"*":xs) = do c1 <- parseMathCommand [x]
+                                 c2 <- parseMathCommand xs
+                                 Just (Operation c1 Multiply c2)
+parseMathCommand (x:xs) = case readMaybe x of
+                             Just d -> Just (Number d)
+                             Nothing -> Just (VariableUsage x)
+
+evalCommand :: Command -> (Map String Double) -> Either (Maybe Double) (Map String Double)
+evalCommand (Variable id cmd) m = Right (case evalMathCommand cmd m of 
+                                              Just d -> insert id d m
+                                              Nothing -> m)
+evalCommand (Evaluate cmd) m = Left (do e <- evalMathCommand cmd m
+                                        Just e)
+
+evalMathCommand :: MathCommand -> Map String Double -> Maybe Double
+evalMathCommand (Number x) m = Just x
+evalMathCommand (VariableUsage id) m = lookup id m
+evalMathCommand (Operation c1 op c2) m = do r1 <- (evalMathCommand c1 m) 
+                                            r2 <- (evalMathCommand c2 m)
+                                            Just (evalOp op r1 r2)
     where evalOp :: Op -> Double -> Double -> Double
           evalOp Plus x y = x + y
           evalOp Multiply x y = x * y
 
-main :: IO ()
-main = do
-        input <-getLine
-        case checkTokens input of
-            True -> case parseCommand $ split input of
-                        Just c -> putStrLn $ "=" ++ (show $ evalCommand c)
-                        Nothing -> putStrLn "Parse Error!"
-            False -> putStrLn "Token Error!"
-        main
+repl :: Map String Double -> IO ()
+repl m = do putStr ">"
+            hFlush stdout
+            input <- getLine
+            case checkTokens input of
+                True -> case parseCommand $ split input of
+                        Just c -> case  evalCommand c m of
+                            Left c -> case c of
+                                      Just c -> putStrLn $ "=" ++ (show c)
+                                      Nothing -> putStrLn "eval error!"
+                            Right m' -> putStrLn "added variable" >> repl m'
+                        Nothing -> putStrLn "parse error!"
+                False -> putStrLn "token error!"
+            repl m
 
+main :: IO ()
+main = repl empty
