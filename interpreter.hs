@@ -9,24 +9,31 @@ data Command = Number Double |
                Operation Command Op Command
                deriving (Show)
 
-parseCommandDouble :: String -> Maybe Double
-parseCommandDouble [] = Nothing
-parseCommandDouble xs = readMaybe $ takeWhile isDigit xs
+
+-- tokenise
+split :: String -> [String]
+split []       = []
+split ('+':xs) = ["+"] ++ (split xs)
+split ('*':xs) = ["*"] ++ (split xs)
+split (' ':xs) = split xs
+split xs       = [(takeWhile isDigit xs)] ++ (split (dropWhile isDigit xs))
+
+checkTokens :: String -> Bool
+checkTokens [] = True
+checkTokens (x:xs) = if elem x valid then checkTokens xs else False
+    where valid = "0123456789+*"
 
 
-parseCommand :: String -> Maybe Command
+parseCommand :: [String] -> Maybe Command
 parseCommand [] = Nothing
-parseCommand (x:'+':xs) = do
-                            c1 <- parseCommand [x]
-                            c2 <- parseCommand xs
-                            Just (Operation c1 Plus c2)
-parseCommand (x:'*':xs) = do
-                            c1 <- parseCommand [x]
-                            c2 <- parseCommand xs
-                            Just (Operation c1 Multiply c2)
-parseCommand xs = case parseCommandDouble xs of
-                    Just x -> Just (Number x)
-                    Nothing -> Nothing
+parseCommand (x:"+":xs) = do c1 <- parseCommand [x]
+                             c2 <- parseCommand xs
+                             Just (Operation c1 Plus c2)
+parseCommand (x:"*":xs) = do c1 <- parseCommand [x]
+                             c2 <- parseCommand xs
+                             Just (Operation c1 Multiply c2)
+parseCommand (x:xs) = do d <- readMaybe x
+                         Just (Number d)
 
 evalCommand :: Command -> Double
 evalCommand (Number x) = x
@@ -38,8 +45,10 @@ evalCommand (Operation c1 op c2) = evalOp op (evalCommand c1)  (evalCommand c2)
 main :: IO ()
 main = do
         input <-getLine
-        case parseCommand $ filter (\x -> not $ isSpace x) input of
-            Just c -> putStrLn $ "=" ++ (show $ evalCommand c)
-            Nothing -> putStrLn "error"
+        case checkTokens input of
+            True -> case parseCommand $ split input of
+                        Just c -> putStrLn $ "=" ++ (show $ evalCommand c)
+                        Nothing -> putStrLn "Parse Error!"
+            False -> putStrLn "Token Error!"
         main
 
